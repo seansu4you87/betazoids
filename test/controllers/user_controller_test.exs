@@ -2,7 +2,7 @@ defmodule Betazoids.UserControllerTest do
   use Betazoids.ConnCase
 
   alias Betazoids.User
-  @valid_attrs %{bio: "some content", email: "some content", name: "some content", number_of_pets: 42}
+  @valid_attrs %{bio: "some content", email: "pay@something.com", name: "some content", number_of_pets: 42}
   @invalid_attrs %{}
 
   setup do
