@@ -2,7 +2,7 @@ defmodule Betazoids.UserSocket do
   use Phoenix.Socket
 
   ## Channels
-  # channel "rooms:*", Betazoids.RoomChannel
+  channel "betazoids:*", Betazoids.Channel
 
   ## Transports
   transport :websocket, Phoenix.Transports.WebSocket
