@@ -1,14 +1,17 @@
-defmodule Betazoids.FacebookUser do
+defmodule Betazoids.Facebook.Message do
   use Betazoids.Web, :model
 
-  schema "facebook_users" do
-    field :name, :string
+  schema "facebook_messages" do
+    field :text, :string
     field :facebook_id, :string
+    field :created_at, Ecto.DateTime
+
+    belongs_to :user, Betazoids.Facebook.User
 
     timestamps
   end
 
-  @required_fields ~w(name facebook_id)
+  @required_fields ~w(text facebook_id created_at user_id)
   @optional_fields ~w()
 
   @doc """
@@ -20,5 +23,6 @@ defmodule Betazoids.FacebookUser do
   def changeset(model, params \\ :empty) do
     model
     |> cast(params, @required_fields, @optional_fields)
+    |> unique_constraint(:facebook_id)
   end
 end
