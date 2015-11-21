@@ -6,6 +6,9 @@ defmodule Betazoids do
   def start(_type, _args) do
     import Supervisor.Spec, warn: false
 
+    table = :ets.new(Betazoids.Collector,
+                   [:set, :public, :named_table, {:read_concurrency, true}])
+
     children = [
       # Start the endpoint when the application starts
       supervisor(Betazoids.Endpoint, []),
@@ -13,6 +16,7 @@ defmodule Betazoids do
       worker(Betazoids.Repo, []),
       # Here you could define other workers and supervisors as children
       # worker(Betazoids.Worker, [arg1, arg2, arg3]),
+      # worker(Betazoids.Collector, [table]),
     ]
 
     # See http://elixir-lang.org/docs/stable/elixir/Supervisor.html
