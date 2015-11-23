@@ -7,12 +7,14 @@ defmodule Betazoids.Facebook.Message do
     field :created_at, Ecto.DateTime
 
     belongs_to :user, Betazoids.Facebook.User
+    belongs_to :collector_log, Betazoids.CollectorLog
+    field :collector_log_fetch_count, :integer
 
     timestamps
   end
 
-  @required_fields ~w(text facebook_id created_at user_id)
-  @optional_fields ~w()
+  @required_fields ~w(facebook_id created_at user_id collector_log_id collector_log_fetch_count)
+  @optional_fields ~w(text)
 
   @doc """
   Creates a changeset based on the `model` and `params`.

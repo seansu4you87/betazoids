@@ -12,109 +12,23 @@ defmodule Betazoids.Collector do
 
   use Supervisor
 
-  def start_link(table) do
-    Supervisor.start_link(__MODULE__, [table], [name: Betazoids.Collector])
+  import Ecto.Query
+
+  alias Betazoids.CollectorLog
+  alias Betazoids.Facebook
+  alias Betazoids.Repo
+
+
+  def start_link do
+    Supervisor.start_link(__MODULE__, [], [name: Betazoids.Collector])
   end
 
-  def init([table]) do
-    :ets.insert(table, {"total", "0"})
-    :ets.insert(table, {"count", "0"})
-
+  def init([]) do
     children = [
-      worker(Task, [__MODULE__, :watch_thread, [table]], [name: Betazoids.Collector.ThreadProcessor])
+      worker(Task, [__MODULE__, :collect_thread, []], [name: Betazoids.Collector.ThreadProcessor])
     ]
 
     supervise(children, strategy: :one_for_one)
-  end
-
-  def say_hello(table) do
-    [{"phrase", phrase}] = :ets.lookup(table, "phrase")
-    IO.puts "#{inspect self}: #{phrase}"
-    :ets.insert(table, {"phrase", "#{phrase} #{phrase}"})
-
-
-    :timer.sleep(1500)
-    say_hello(table)
-  end
-
-  def watch_thread(table) do
-    :timer.sleep(1500)
-    case :ets.lookup(table, "next") do
-      [{"next", next}] ->
-        {:ok, %{next: next, comments: comments}} = fetch_next(next)
-
-        {total, _} = Integer.parse(elem(retrieve_key(table, "total"), 1))
-        total = total + length(comments)
-        store_key(table, "total", to_string(total))
-
-        {count, _} = Integer.parse(elem(retrieve_key(table, "count"), 1))
-        count = count + 1
-        store_key(table, "count", to_string(count))
-
-        first = List.first(comments)
-        IO.puts "#{count} - total: #{total}, add #{length(comments)} comments, first: #{first.created_time}"
-
-        process_comments(comments)
-        store_next(table, next)
-        watch_thread(table)
-      [] ->
-        case check_betazoids do
-          {:ok, res} ->
-            process_comments(res.comments)
-            store_next(table, res.paging.next)
-            watch_thread(table)
-          {:error, body} ->
-            IO.puts body
-            raise "Error in #check_betazoids"
-        end
-    end
-  end
-
-  def store_next(table, next) do
-    store_key(table, "next", next)
-  end
-
-  def retrieve_key(table, key) do
-    case :ets.lookup(table, key) do
-      [] -> {:error, "#{key} does not exist"}
-      [{key, value}] -> {:ok, value}
-    end
-  end
-
-  def store_key(table, key, value) do
-    :ets.insert(table, {key, value})
-  end
-
-  alias Betazoids
-  alias Betazoids.Repo
-  alias Betazoids.Facebook
-  import Ecto.Query
-
-  def fetch_next(next_url) do
-    next_path = path_from_url(next_url)
-    case Facebook.get!(next_path) do
-      %HTTPoison.Response{status_code: 200, body: body} ->
-        comments = body.data
-        paging = body.paging
-
-        {:ok, %{next: paging.next, comments: comments}}
-      %HTTPoison.Response{status_code: 400, body: body} ->
-        {:error, %{message: body}}
-      %HTTPoison.Error{reason: reason} ->
-        {:error, %{message: reason}}
-    end
-  end
-
-  def acquire_long_token(short_token) do
-    path = Facebook.generate_long_token_path(short_token)
-    case Facebook.get!(path) do
-      %HTTPoison.Response{status_code: 200, body: body} ->
-        {:ok, %{long_token: body.access_token, expires_in: body.expires_in}}
-      %HTTPoison.Response{status_code: 400, body: body} ->
-        {:error, body}
-      %HTTPoison.Error{reason: reason} ->
-        {:error, reason}
-    end
   end
 
   def check_betazoids do
@@ -143,7 +57,83 @@ defmodule Betazoids.Collector do
     end
   end
 
-  def create_facebook_user(%{id: id, name: name}) do
+  def collect_thread do
+    case last_collector_log do
+      []                          -> {:ok, collector_log} = fetch_head
+      [%CollectorLog{done: true}] -> {:ok, collector_log} = fetch_head
+      [last_log]                  -> collector_log = last_log
+    end
+
+    {:ok, _} = fetch_next(collector_log)
+
+    collect_thread
+  end
+
+  defp fetch_head do
+    Repo.transaction fn ->
+      {:ok, collector_log} = create_collector_log
+      {:ok, res} = check_betazoids
+
+      changeset = CollectorLog.changeset(collector_log, %{
+        fetch_count: 1,
+        message_count: length(res.comments),
+        next_url: res.paging.next
+      })
+      {:ok, collector_log} = Repo.update(changeset)
+
+      process_comments(res.comments, collector_log)
+      collector_log
+    end
+  end
+
+  defp fetch_next(collector_log) do
+    case collector_log.done do
+      true ->
+        IO.puts "done fetching #{collector_log.message_count} messages in #{collector_log.fetch_count} fetches"
+        {:ok, collector_log}
+      false ->
+        next_path = path_from_url(collector_log.next_url)
+        %HTTPoison.Response{status_code: 200, body: body} = Facebook.get!(next_path)
+        comments = body.data
+
+        if length(comments) == 0 do
+          # done
+          changeset = CollectorLog.changeset(collector_log, %{done: true})
+          {:ok, collector_log} = Repo.update(changeset)
+        else
+          Repo.transaction fn ->
+            changeset = CollectorLog.changeset(collector_log, %{
+              fetch_count: collector_log.fetch_count + 1,
+              message_count: collector_log.message_count + length(comments),
+              next_url: body.paging.next
+            })
+            {:ok, collector_log} = Repo.update(changeset)
+
+            process_comments(comments, collector_log)
+          end
+
+          IO.puts "#{collector_log.fetch_count} - total: #{collector_log.message_count}, add #{length(comments)} comments, first: #{List.first(comments).created_time}"
+        end
+
+       :timer.sleep(1500)
+        fetch_next(collector_log)
+    end
+  end
+
+  defp last_collector_log do
+    query = from cl in CollectorLog,
+       order_by: [desc: cl.id],
+          limit: 1,
+         select: cl
+    Repo.all(query)
+  end
+
+  defp create_collector_log do
+    changeset = CollectorLog.changeset(%CollectorLog{}, %{})
+    Repo.insert(changeset)
+  end
+
+  defp create_facebook_user(%{id: id, name: name}) do
     changeset = Facebook.User.changeset(%Facebook.User{}, %{
       facebook_id: id,
       name: name})
@@ -159,11 +149,12 @@ defmodule Betazoids.Collector do
     end
   end
 
-  def create_facebook_message(%{
+  defp create_facebook_message(%{
           id: id,
           from: from_hash,
           message: message,
           created_time: created_time},
+        collector_log,
         user_cache \\ %{}) do
     user_id = case user_cache[from_hash.id] do
       %Facebook.User{id: id} -> id
@@ -183,21 +174,15 @@ defmodule Betazoids.Collector do
       facebook_id: id,
       user_id: user_id,
       text: message,
-      created_at: tmp_time
+      created_at: tmp_time,
+      collector_log_id: collector_log.id,
+      collector_log_fetch_count: collector_log.fetch_count
     })
 
-    case Repo.insert(changeset) do
-      {:ok, message} ->
-        IO.puts "YAY created"
-        {:ok, message}
-      {:error, changeset} ->
-        IO.puts "BOO errored"
-        IO.puts Enum.map(changeset.errors, fn({k,v}) -> "#{k} #{v}" end)
-        {:error, changeset}
-    end
+    Repo.insert(changeset)
   end
 
-  def betazoids_member_cache do
+  defp betazoids_member_cache do
     query = from u in Facebook.User,
          select: u
 
@@ -205,15 +190,19 @@ defmodule Betazoids.Collector do
     |> Enum.reduce %{}, fn(u, cache) -> Map.put(cache, u.facebook_id, u) end
   end
 
-  def process_comments(comments) do
+  defp process_comments(comments, collector_log) do
     # Enum.each comments, fn(c) -> IO.puts "processing #{c.id} from #{c.from.name} at: #{c.created_time}" end
     cache = betazoids_member_cache
-    # Enum.each comments, fn(c) -> create_facebook_message(c, cache) end
+    require IEx; IEx.pry
+    Enum.each comments, fn(c) ->
+      unless Map.has_key?(c, :message), do: c = Map.put(c, :message, nil)
+      {:ok, _} = create_facebook_message(c, collector_log, cache)
+    end
   end
 
-  def betazoids_thread_id, do: "438866379596318"
-  def sean_yu_long_lived_token, do: "CAAMD90ZCeW1YBAE6tBMgPBeNhtbY0nUj6Il1A34dZAOqrSZCxwjsEu1uJjU8VQGrrOUc1DhLvXSfPCcW6ZBBDLsYG6ZAznoSi8l0t4qbKSDUZCSfmIFtDdnQMnGgkSa8DGAGkmpFMZAR4JIvAS4QmNgh2Q6e7VZCE04tWws4JGs2zdWf6taslUgKdCuHNXeEoqEZD"
-  def graph_explorer_token, do: "CAACEdEose0cBAAEhWbZBy4ZC9xZBmeciEugZB3lcHFvdKRw8fYl2Bm8CXSwGGJbjMyV84IY6IZBMb5oM4cI7k2GUkc4cjoYcYCOWhqwysPe2r67PUiSNaKk1lteLYUbsJkILgk57J1c1aJz75LfxI87cJ5AWsvAw04j7ZBmXJQc1TZCuzybj9SDW1K920znQlB5ta1rXp1FPQZDZD"
+  defp betazoids_thread_id, do: "438866379596318"
+  defp sean_yu_long_lived_token, do: "CAAMD90ZCeW1YBAE6tBMgPBeNhtbY0nUj6Il1A34dZAOqrSZCxwjsEu1uJjU8VQGrrOUc1DhLvXSfPCcW6ZBBDLsYG6ZAznoSi8l0t4qbKSDUZCSfmIFtDdnQMnGgkSa8DGAGkmpFMZAR4JIvAS4QmNgh2Q6e7VZCE04tWws4JGs2zdWf6taslUgKdCuHNXeEoqEZD"
+  defp graph_explorer_token, do: "CAACEdEose0cBAEddrffJ19tG40wQU75CKZAhzZCQC3PVavZAvvfm0TBsx7ngZCAXQ5BUVB6uZBCuI68jvQvqchyFs1MNkesyEzntl4Jh5ZCvM6CmrFyZBIiEBUyrNVqA6B9i33iK8xjaK1xSbZAsGpwETFSZAS3wELnG1bbaHgGHUUuBjuFxuiIjGvqZCehClJZAOSynm98N1RVQNb4Dh9jkMvs"
 
   defp path_from_url(url) do
     String.slice(url, 31..-1)
