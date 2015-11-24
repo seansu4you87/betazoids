@@ -3,7 +3,15 @@ defmodule Betazoids.Facebook.MessageTest do
 
   alias Betazoids.Facebook
 
-  @valid_attrs %{created_at: "2010-04-17 14:00:00", facebook_id: "some content", text: "some content", user_id: 1}
+  @valid_attrs %{
+    created_at: "2010-04-17 14:00:00",
+    facebook_id: "some content",
+    text: "some content",
+    user_id: 1,
+    collector_log_id: 1,
+    collector_log_fetch_count: 1
+  }
+
   @invalid_attrs %{}
 
   test "changeset with valid attributes" do
