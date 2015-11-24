@@ -16,7 +16,7 @@ defmodule Betazoids do
     ]
 
     if Mix.env != :test do
-      children = children ++ [worker(Betazoids.Collector, [])]
+      # children = children ++ [worker(Betazoids.Collector, [])]
     end
 
     # See http://elixir-lang.org/docs/stable/elixir/Supervisor.html
