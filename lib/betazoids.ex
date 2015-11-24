@@ -13,8 +13,11 @@ defmodule Betazoids do
       worker(Betazoids.Repo, []),
       # Here you could define other workers and supervisors as children
       # worker(Betazoids.Worker, [arg1, arg2, arg3]),
-      worker(Betazoids.Collector, []),
     ]
+
+    if Mix.env != :test do
+      children = children ++ [worker(Betazoids.Collector, [])]
+    end
 
     # See http://elixir-lang.org/docs/stable/elixir/Supervisor.html
     # for other strategies and supported options

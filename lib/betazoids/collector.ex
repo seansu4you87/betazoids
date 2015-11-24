@@ -8,6 +8,11 @@ defmodule Betazoids.Collector do
   Collector consists to taking a short-lived token and extending it to a
   long-lived token.  This token is then used to periodically fetch data and
   results from the Betazoids messenger group
+
+  Functions prefixed with `req_http_` are **impure** functions that call out
+  via HTTP to Facebook.  These have been specifically noted so that you
+  carefully tread around these.  Functions to process the responses of these
+  HTTP requests are "pure" functions, but they still hit the database
   """
 
   use Supervisor
@@ -20,7 +25,7 @@ defmodule Betazoids.Collector do
 
   @betazoids_thread_id "438866379596318"
   # @sean_yu_long_lived_token "CAAMD90ZCeW1YBAE6tBMgPBeNhtbY0nUj6Il1A34dZAOqrSZCxwjsEu1uJjU8VQGrrOUc1DhLvXSfPCcW6ZBBDLsYG6ZAznoSi8l0t4qbKSDUZCSfmIFtDdnQMnGgkSa8DGAGkmpFMZAR4JIvAS4QmNgh2Q6e7VZCE04tWws4JGs2zdWf6taslUgKdCuHNXeEoqEZD"
-  @graph_explorer_token "CAACEdEose0cBAGf1yHYpoO2AI81xsKcq093zoVX0dwHpjAmV45A3YSOviPBWAAfoKHNidsnQRL1yi4yaHVK9a2ebU8pqf2pY5P4aZAeWqLYHDjCpYImnJn3pZAMQvFK14oGhwEqHktI6lB8EDbg9BfZAaCopbtDpA3fcdUkKD0hIoYtXtnIgna1GH2SzZBCHjhSjqbuIogZDZD"
+  @graph_explorer_token "CAACEdEose0cBAEKVlkmLjnWLDdTwUjKM7KAO3e0whcrRu3VTJceZBdIZCJBZC84Ug61HsvVbxmKPdrBJ5tiWUbKytgP5EdVf7gcCej39AZBRduwIw7dD4pjNfyXLtBgZCNqpkCQzkvH59MTlyibsTZClZCZCaqdiG69kbOxoEYZBIhIOj4bJGS6epdiDGs9qJJW9YrBPWZBNdInQZDZD"
 
   def start_link do
     Supervisor.start_link(__MODULE__, [], [name: Betazoids.Collector])
@@ -28,13 +33,18 @@ defmodule Betazoids.Collector do
 
   def init([]) do
     children = [
-      worker(Task, [__MODULE__, :collect_thread, []], [name: Betazoids.Collector.ThreadProcessor])
+      worker(Task, [__MODULE__, :collect_thread!, []], [name: Betazoids.Collector.ThreadProcessor])
     ]
 
     supervise(children, strategy: :one_for_one)
   end
 
-  def check_betazoids do
+  @doc """
+  WARNING: impure function!
+
+  Make a request to the betazoids thread and gets the head (latest)
+  """
+  def req_http_betazoids_head! do
     path = Facebook.thread(@betazoids_thread_id, @graph_explorer_token)
     case Facebook.get!(path) do
       %HTTPoison.Response{status_code: 200, body: body} ->
@@ -43,101 +53,125 @@ defmodule Betazoids.Collector do
         members = body.to.data
         last_updated = body.updated_time
         {:ok, %{comments: comments, paging: paging, members: members, last_updated: last_updated}}
-      %HTTPoison.Response{status_code: 400, body: body} ->
-        {:error, body}
-      %HTTPoison.Error{reason: reason} ->
-        {:error, reason}
+      %HTTPoison.Response{status_code: 400, body: body} -> {:error, body}
+      %HTTPoison.Error{reason: reason} -> {:error, reason}
     end
   end
 
-  def save_betazoid_members do
-    case check_betazoids do
+  @doc """
+  WARNING: impure function!
+
+  Make a request to the betazoids at the given url
+  """
+  def req_http_betazoids_next!(next_url) do
+    path = path_from_url(next_url)
+    case Facebook.get!(path) do
+      %HTTPoison.Response{status_code: 200, body: body} ->
+        if length(body.data) == 0 do
+          {:ok, %{done: true}}
+        else
+          {:ok, %{comments: body.data, paging: body.paging}}
+        end
+      %HTTPoison.Response{status_code: 400, body: body} -> {:error, body}
+      %HTTPoison.Error{reason: reason} -> {:error, reason}
+    end
+  end
+
+  def save_betazoid_members! do
+    case req_http_betazoids_head! do
       {:ok, %{members: members}} ->
-        {:ok, %{members: Enum.map(members, fn(member_hash) ->
-          create_facebook_user(member_hash) end)}}
+        db_members = members |> Enum.map fn(m) -> create_facebook_user(m) end
+        {:ok, %{members: db_members}}
       {:error, message} ->
         {:error, message}
     end
   end
 
-  def collect_thread do
+  def collect_thread! do
     case last_collector_log do
-      []                          -> {:ok, collector_log} = fetch_head
-      [%CollectorLog{done: true}] -> {:ok, collector_log} = fetch_head
+      []                          -> {:ok, collector_log} = fetch_head!
+      [%CollectorLog{done: true}] -> {:ok, collector_log} = fetch_head!
       [last_log]                  -> collector_log = last_log
     end
 
-    {:ok, _} = fetch_next(collector_log)
+    {:ok, _} = fetch_next!(collector_log)
 
-    collect_thread
+    collect_thread!
   end
 
-  defp fetch_head do
+  def fetch_head! do
+    {:ok, res} = req_http_betazoids_head!
+    process_head(res.comments, res.paging.next)
+  end
+
+  def process_head(comments, next_url) do
     Repo.transaction fn ->
       {:ok, collector_log} = create_collector_log
-      {:ok, res} = check_betazoids
 
       changeset = CollectorLog.changeset(collector_log, %{
         fetch_count: 1,
-        message_count: length(res.comments),
-        next_url: res.paging.next
+        message_count: length(comments),
+        next_url: next_url
       })
-      {:ok, updated_collector_log} = Repo.update(changeset)
+      {:ok, collector_log} = Repo.update(changeset)
 
-      process_comments(res.comments, updated_collector_log)
-      updated_collector_log
+      process_comments(comments, collector_log)
+      collector_log
     end
   end
 
-  defp fetch_next(collector_log, tracer \\ []) do
+  def fetch_next!(collector_log, tracer \\ []) do
     IO.puts "********************************************"
     IO.puts "tracer #{inspect tracer}"
     IO.puts "********************************************"
-    case collector_log.done do
-      false ->
-        next_path = path_from_url(collector_log.next_url)
-        %HTTPoison.Response{status_code: 200, body: body} = Facebook.get!(next_path)
-        comments = body.data
 
-        if length(comments) == 0 do
-          # done
-          changeset = CollectorLog.changeset(collector_log, %{done: true})
-          {:ok, collector_log} = Repo.update(changeset)
-        else
-          changeset = CollectorLog.changeset(collector_log, %{
-            fetch_count: collector_log.fetch_count + 1,
-            message_count: collector_log.message_count + length(comments),
-            next_url: body.paging.next
-          })
+    if collector_log.done do
+      IO.puts """
+      done fetching #{collector_log.message_count} messages
+      in #{collector_log.fetch_count} fetches
+      """
 
-          # TODO(yu): This should be inside the transaction but it raises an
-          # error for some reason
-          {:ok, collector_log} = Repo.update(changeset)
-          Repo.transaction fn ->
-            process_comments(comments, collector_log)
-          end
-        end
+      {:ok, collector_log}
+    else
+      {:ok, res} = req_http_betazoids_next!(collector_log.next_url)
+      case res do
+        %{done: true} -> process_done(collector_log)
+        %{comments: comments, paging: paging} ->
+          {:ok, collector_log} = process_next(collector_log, comments, paging.next)
+      end
 
-        IO.puts """
-        #{collector_log.fetch_count} -
-        total: #{collector_log.message_count},
-        add #{length(comments)} comments, first:
-        #{List.first(comments).created_time}
-        """
-
-        :timer.sleep(1500)
-        fetch_next(collector_log, tracer ++ [collector_log.fetch_count])
-      true ->
-        IO.puts """
-        done fetching #{collector_log.message_count} messages
-        in #{collector_log.fetch_count} fetches
-        """
-
-        {:ok, collector_log}
+      :timer.sleep(1500)
+      fetch_next!(collector_log, tracer ++ [collector_log.fetch_count])
     end
   end
 
-  defp last_collector_log do
+  def process_done(collector_log) do
+    changeset = CollectorLog.changeset(collector_log, %{done: true})
+    Repo.update(changeset)
+  end
+
+  def process_next(collector_log, comments, next_url) do
+    changeset = CollectorLog.changeset(collector_log, %{
+      fetch_count: collector_log.fetch_count + 1,
+      message_count: collector_log.message_count + length(comments),
+      next_url: next_url
+    })
+
+    IO.puts """
+    #{collector_log.fetch_count} -
+    total: #{collector_log.message_count},
+    add #{length(comments)} comments,
+    first: #{List.first(comments).created_time}
+    """
+
+    Repo.transaction fn ->
+      {:ok, updated} = Repo.update(changeset)
+      process_comments(comments, updated)
+      updated
+    end
+  end
+
+  def last_collector_log do
     query = from cl in CollectorLog,
        order_by: [desc: cl.id],
           limit: 1,
@@ -145,12 +179,12 @@ defmodule Betazoids.Collector do
     Repo.all(query)
   end
 
-  defp create_collector_log do
+  def create_collector_log do
     changeset = CollectorLog.changeset(%CollectorLog{}, %{})
     Repo.insert(changeset)
   end
 
-  defp create_facebook_user(%{id: id, name: name}) do
+  def create_facebook_user(%{id: id, name: name}) do
     changeset = Facebook.User.changeset(%Facebook.User{}, %{
       facebook_id: id,
       name: name})
@@ -166,7 +200,7 @@ defmodule Betazoids.Collector do
     end
   end
 
-  defp create_facebook_message(%{
+  def create_facebook_message(%{
           id: id,
           from: from_hash,
           message: message,
@@ -199,7 +233,7 @@ defmodule Betazoids.Collector do
     Repo.insert(changeset)
   end
 
-  defp betazoids_member_cache do
+  def betazoids_member_cache do
     query = from u in Facebook.User,
          select: u
 
@@ -207,9 +241,8 @@ defmodule Betazoids.Collector do
     |> Enum.reduce %{}, fn(u, cache) -> Map.put(cache, u.facebook_id, u) end
   end
 
-  defp process_comments(comments, collector_log) do
+  def process_comments(comments, collector_log) do
     ids = comments |> Enum.map(fn(c) -> c.id end) |> Enum.sort
-    require IEx; IEx.pry
     IO.puts "------------------------------------------------------------------------"
     IO.puts "FETCH COUNT: #{collector_log.fetch_count}"
     IO.puts "got #{inspect ids}"
@@ -222,8 +255,7 @@ defmodule Betazoids.Collector do
     end
   end
 
-  defp path_from_url(url) do
+  def path_from_url(url) do
     String.slice(url, 31..-1)
   end
-
 end
