@@ -1,0 +1,18 @@
+<h2>Show access token</h2>
+
+<ul>
+
+  <li>
+    <strong>Token:</strong>
+    <%= @access_token.token %>
+  </li>
+
+  <li>
+    <strong>Type:</strong>
+    <%= @access_token.type %>
+  </li>
+
+</ul>
+
+<%= link "Edit", to: access_token_path(@conn, :edit, @access_token) %>
+<%= link "Back", to: access_token_path(@conn, :index) %>

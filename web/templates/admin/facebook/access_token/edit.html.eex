@@ -1,0 +1,6 @@
+<h2>Edit access token</h2>
+
+<%= render "form.html", changeset: @changeset,
+                        action: access_token_path(@conn, :update, @access_token) %>
+
+<%= link "Back", to: access_token_path(@conn, :index) %>

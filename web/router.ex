@@ -23,6 +23,12 @@ defmodule Betazoids.Router do
     resources "/users", UserController
   end
 
+  scope "/admin", Betazoids do
+    pipe_through :browser
+
+    resources "/facebook/access_tokens", Admin.Facebook.AccessTokenController
+  end
+
   # Other scopes may use custom stacks.
   # scope "/api", Betazoids do
   #   pipe_through :api
