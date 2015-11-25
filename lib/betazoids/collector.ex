@@ -24,8 +24,6 @@ defmodule Betazoids.Collector do
   alias Betazoids.Repo
 
   @betazoids_thread_id "438866379596318"
-  # @sean_yu_long_lived_token "CAAMD90ZCeW1YBAE6tBMgPBeNhtbY0nUj6Il1A34dZAOqrSZCxwjsEu1uJjU8VQGrrOUc1DhLvXSfPCcW6ZBBDLsYG6ZAznoSi8l0t4qbKSDUZCSfmIFtDdnQMnGgkSa8DGAGkmpFMZAR4JIvAS4QmNgh2Q6e7VZCE04tWws4JGs2zdWf6taslUgKdCuHNXeEoqEZD"
-  @graph_explorer_token "CAACEdEose0cBAEKVlkmLjnWLDdTwUjKM7KAO3e0whcrRu3VTJceZBdIZCJBZC84Ug61HsvVbxmKPdrBJ5tiWUbKytgP5EdVf7gcCej39AZBRduwIw7dD4pjNfyXLtBgZCNqpkCQzkvH59MTlyibsTZClZCZCaqdiG69kbOxoEYZBIhIOj4bJGS6epdiDGs9qJJW9YrBPWZBNdInQZDZD"
 
   def start_link do
     Supervisor.start_link(__MODULE__, [], [name: Betazoids.Collector])
@@ -45,7 +43,7 @@ defmodule Betazoids.Collector do
   Make a request to the betazoids thread and gets the head (latest)
   """
   def req_http_betazoids_head! do
-    path = Facebook.thread(@betazoids_thread_id, @graph_explorer_token)
+    path = Facebook.thread(@betazoids_thread_id, graph_explorer_access_token)
     case Facebook.get!(path) do
       %HTTPoison.Response{status_code: 200, body: body} ->
         comments = body.comments.data
@@ -64,7 +62,7 @@ defmodule Betazoids.Collector do
   Make a request to the betazoids at the given url
   """
   def req_http_betazoids_next!(next_url) do
-    path = path_from_url(next_url)
+    path = path_from_url(reauth_url(next_url))
     case Facebook.get!(path) do
       %HTTPoison.Response{status_code: 200, body: body} ->
         if length(body.data) == 0 do
@@ -219,13 +217,12 @@ defmodule Betazoids.Collector do
         end
     end
 
-    # TODO(yu): get a real time
-    tmp_time = Ecto.DateTime.from_erl(:calendar.now_to_datetime(:os.timestamp))
+    {:ok, ecto_date} = parse_date(created_time)
     changeset = Facebook.Message.changeset(%Facebook.Message{}, %{
       facebook_id: id,
       user_id: user_id,
       text: message,
-      created_at: tmp_time,
+      created_at: ecto_date,
       collector_log_id: collector_log.id,
       collector_log_fetch_count: collector_log.fetch_count
     })
@@ -257,5 +254,31 @@ defmodule Betazoids.Collector do
 
   def path_from_url(url) do
     String.slice(url, 31..-1)
+  end
+
+  def parse_date(raw_date) do
+    {:ok, timex_date} = Timex.DateFormat.parse(raw_date, "{ISO}")
+    {:ok, ecto_raw_date} = Timex.DateFormat.format(timex_date, "{ISOz}")
+    Ecto.DateTime.cast(ecto_raw_date)
+  end
+
+  def graph_explorer_access_token do
+    query = from fat in Facebook.AccessToken,
+       order_by: [desc: fat.id],
+          limit: 1,
+         select: fat
+    [%Facebook.AccessToken{token: token}] = Repo.all(query)
+    token
+  end
+
+  def reauth_url(next_url) do
+    next_url
+    |> String.split("&")
+    |> Enum.map_join("&", fn(params) ->
+      case params do
+        "access_token=" <> old_token -> "access_token=#{graph_explorer_access_token}"
+        anything -> anything
+      end
+    end)
   end
 end
