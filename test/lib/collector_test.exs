@@ -1,5 +1,5 @@
 defmodule Betazoids.CollectorTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case
 
   import Ecto.Query
   alias Betazoids.Collector
@@ -167,8 +167,8 @@ defmodule Betazoids.CollectorTest do
   end
 
   test "#last_collector_log" do
-    {:ok, first} = Collector.create_collector_log
-    {:ok, second} = Collector.create_collector_log
+    {:ok, _} = Collector.create_collector_log
+    {:ok, _} = Collector.create_collector_log
     {:ok, third} = Collector.create_collector_log
 
     [last] = Collector.last_collector_log
@@ -176,7 +176,7 @@ defmodule Betazoids.CollectorTest do
   end
 
   test "create_facebook_user" do
-    {:ok, daniel} = Collector.create_facebook_user(raw_daniel)
+    {:ok, _} = Collector.create_facebook_user(raw_daniel)
 
     query = from u in Facebook.User,
          select: u
@@ -279,14 +279,14 @@ defmodule Betazoids.CollectorTest do
   end
 
   test "#graph_explorer_access_token" do
-    {:ok, first} = Repo.insert Facebook.AccessToken.changeset(%Facebook.AccessToken{}, %{token: "blah"})
+    {:ok, _} = Repo.insert Facebook.AccessToken.changeset(%Facebook.AccessToken{}, %{token: "blah"})
     {:ok, second} = Repo.insert Facebook.AccessToken.changeset(%Facebook.AccessToken{}, %{token: "blah blah"})
 
     assert Collector.graph_explorer_access_token == second.token
   end
 
   test "#reauth_url" do
-    {:ok, token} = Repo.insert Facebook.AccessToken.changeset(%Facebook.AccessToken{}, %{token: "blah"})
+    {:ok, _} = Repo.insert Facebook.AccessToken.changeset(%Facebook.AccessToken{}, %{token: "blah"})
 
     url = "https://graph.facebook.com/v2.3/438866379596318/comments?limit=25&__paging_token=enc_AdC8PPuPmZCx9JakAa1QJiiZAj7vo1cSe8HO8vxZB1ZAsEyiTYtPmPA6lnW4xgb7gfXH2nJEVk1rig1mnYiWZAAKn2ZA3S&access_token=CAACEdEose0cBAD26EhdO6oyfAsP3nCQVRXWrWqJx6pjJm2aHPPvGPz4Hw0hFixwcip979wvoVpOejppoFf5ZBkWgjlHRkpzNlpVy65oGX55gBegGgqZCJIod6LxZB7Raq8r1dJrn2FwyzEYuVpWe9w46BHL94ZAJwPzJSVH16CsZB96uaIJZAK5kWWckjLqjgEvZBVQeRIGxwZDZD&until=1448233427"
 

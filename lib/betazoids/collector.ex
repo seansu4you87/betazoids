@@ -85,6 +85,10 @@ defmodule Betazoids.Collector do
     end
   end
 
+  @doc """
+  This is main task of the Collector.  It starts from the head, and collect
+  each message all the way to the beginning
+  """
   def collect_thread! do
     case last_collector_log do
       []                          -> {:ok, collector_log} = fetch_head!
@@ -92,9 +96,14 @@ defmodule Betazoids.Collector do
       [last_log]                  -> collector_log = last_log
     end
 
-    {:ok, _} = fetch_next!(collector_log)
-
-    collect_thread!
+    {:ok, collector_log} = fetch_next!(collector_log)
+    IO.puts "**********************************************************"
+    IO.puts """
+    CollectorLog #{collector_log.id}
+    has fetched #{collector_log.fetch_count} times,
+    fetching #{collector_log.message_count} message
+    """
+    IO.puts "**********************************************************"
   end
 
   def fetch_head! do
@@ -239,12 +248,6 @@ defmodule Betazoids.Collector do
   end
 
   def process_comments(comments, collector_log) do
-    ids = comments |> Enum.map(fn(c) -> c.id end) |> Enum.sort
-    IO.puts "------------------------------------------------------------------------"
-    IO.puts "FETCH COUNT: #{collector_log.fetch_count}"
-    IO.puts "got #{inspect ids}"
-    IO.puts "------------------------------------------------------------------------"
-
     cache = betazoids_member_cache
     Enum.each comments, fn(c) ->
       unless Map.has_key?(c, :message), do: c = Map.put(c, :message, nil)
@@ -272,13 +275,14 @@ defmodule Betazoids.Collector do
   end
 
   def reauth_url(next_url) do
-    next_url
+    [base_url, query_params] = String.split(next_url, "?")
+    base_url <> "?" <> (query_params
     |> String.split("&")
     |> Enum.map_join("&", fn(params) ->
       case params do
-        "access_token=" <> old_token -> "access_token=#{graph_explorer_access_token}"
+        "access_token=" <> _ -> "access_token=#{graph_explorer_access_token}"
         anything -> anything
       end
-    end)
+    end))
   end
 end
