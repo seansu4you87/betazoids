@@ -17,9 +17,19 @@ defmodule Betazoids.Mixfile do
   #
   # Type `mix help compile.app` for more information.
   def application do
-    [mod: {Betazoids, []},
-     applications: [:phoenix, :phoenix_html, :cowboy, :logger,
-                    :phoenix_ecto, :postgrex, :httpoison]]
+    [
+      mod: {Betazoids, []},
+      applications: [
+        :cowboy,
+        :logger,
+        :phoenix,
+        :phoenix_ecto,
+        :phoenix_html,
+        :postgrex,
+        :httpoison,
+        :tzdata,
+     ]
+   ]
   end
 
   # Specifies which paths to compile per environment.
@@ -30,13 +40,16 @@ defmodule Betazoids.Mixfile do
   #
   # Type `mix help deps` for examples and options.
   defp deps do
-    [{:phoenix, "~> 1.0.3"},
-     {:phoenix_ecto, "~> 1.1"},
-     {:postgrex, ">= 0.0.0"},
-     {:phoenix_html, "~> 2.1"},
-     {:phoenix_live_reload, "~> 1.0", only: :dev},
-     {:cowboy, "~> 1.0"},
-     {:httpoison, "~> 0.8.0"}]
+    [
+      {:cowboy, "~> 1.0"},
+      {:httpoison, "~> 0.8.0"},
+      {:phoenix, "~> 1.0.3"},
+      {:phoenix_ecto, "~> 1.1"},
+      {:postgrex, ">= 0.0.0"},
+      {:phoenix_html, "~> 2.1"},
+      {:phoenix_live_reload, "~> 1.0", only: :dev},
+      {:timex, "~> 1.0.0-rc2"},
+    ]
   end
 
   # Aliases are shortcut or tasks specific to the current project.

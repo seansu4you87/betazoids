@@ -201,7 +201,13 @@ defmodule Betazoids.CollectorTest do
 
     query = from m in Facebook.Message,
          select: m
-    assert length(Repo.all(query)) == 1
+    ms = Repo.all(query)
+    assert length(ms) == 1
+
+    [m] = ms
+    assert m.facebook_id == "101"
+    assert m.text == "I'm gonna KYS"
+    assert Ecto.DateTime.to_iso8601(m.created_at) == "2015-11-17T02:51:30Z"
   end
 
   test "#create_facebook_message with cache" do
@@ -258,8 +264,34 @@ defmodule Betazoids.CollectorTest do
   end
 
   test "#parse_date" do
-    datetime = "2015-11-23T18:57:01+0000"
+    # def datetime_example, do: "2015-11-23T18:57:01+0000"
 
-    assert false
+    {:ok, date} = Collector.parse_date(datetime_example)
+
+    assert date.__struct__ == Ecto.DateTime
+    assert date.year == 2015
+    assert date.month == 11
+    assert date.day == 23
+    assert date.hour == 18
+    assert date.min == 57
+    assert date.sec == 01
+    assert date.usec == 0
   end
+
+  test "#graph_explorer_access_token" do
+    {:ok, first} = Repo.insert Facebook.AccessToken.changeset(%Facebook.AccessToken{}, %{token: "blah"})
+    {:ok, second} = Repo.insert Facebook.AccessToken.changeset(%Facebook.AccessToken{}, %{token: "blah blah"})
+
+    assert Collector.graph_explorer_access_token == second.token
+  end
+
+  test "#reauth_url" do
+    {:ok, token} = Repo.insert Facebook.AccessToken.changeset(%Facebook.AccessToken{}, %{token: "blah"})
+
+    url = "https://graph.facebook.com/v2.3/438866379596318/comments?limit=25&__paging_token=enc_AdC8PPuPmZCx9JakAa1QJiiZAj7vo1cSe8HO8vxZB1ZAsEyiTYtPmPA6lnW4xgb7gfXH2nJEVk1rig1mnYiWZAAKn2ZA3S&access_token=CAACEdEose0cBAD26EhdO6oyfAsP3nCQVRXWrWqJx6pjJm2aHPPvGPz4Hw0hFixwcip979wvoVpOejppoFf5ZBkWgjlHRkpzNlpVy65oGX55gBegGgqZCJIod6LxZB7Raq8r1dJrn2FwyzEYuVpWe9w46BHL94ZAJwPzJSVH16CsZB96uaIJZAK5kWWckjLqjgEvZBVQeRIGxwZDZD&until=1448233427"
+
+    url = Collector.reauth_url(url)
+
+    assert url == "https://graph.facebook.com/v2.3/438866379596318/comments?limit=25&__paging_token=enc_AdC8PPuPmZCx9JakAa1QJiiZAj7vo1cSe8HO8vxZB1ZAsEyiTYtPmPA6lnW4xgb7gfXH2nJEVk1rig1mnYiWZAAKn2ZA3S&access_token=blah&until=1448233427"
+    end
 end
