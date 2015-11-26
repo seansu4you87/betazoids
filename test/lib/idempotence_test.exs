@@ -73,7 +73,7 @@ defmodule IdempotenceTest do
     assert m.collector_log_fetch_count == 25
   end
 
-  test "#create with a before_callback" do
+  test "#create with a callbacks" do
     {:ok, daniel} = make_daniel
     {:ok, collector_log} = Collector.create_collector_log
     changeset = make_message_changeset(daniel, collector_log)
@@ -84,10 +84,16 @@ defmodule IdempotenceTest do
       :facebook_id,
       changeset,
       before_callback: fn -> make_ben end,
+      after_callback: fn -> make_nick end,
     )
 
     query = from u in Facebook.User,
           where: u.facebook_id == ^raw_ben.id,
+         select: u
+    assert length(Repo.all(query)) == 1
+
+    query = from u in Facebook.User,
+          where: u.facebook_id == ^raw_nick.id,
          select: u
     assert length(Repo.all(query)) == 1
 
@@ -102,7 +108,7 @@ defmodule IdempotenceTest do
     assert m.collector_log_fetch_count == 25
   end
 
-  test "#create with a before_callback when model is already created" do
+  test "#create with callbacks when model is already created" do
     {:ok, daniel} = make_daniel
     {:ok, collector_log} = Collector.create_collector_log
     changeset = make_message_changeset(daniel, collector_log)
@@ -115,10 +121,16 @@ defmodule IdempotenceTest do
       :facebook_id,
       changeset,
       before_callback: fn -> make_ben end,
+      after_callback: fn -> make_nick end,
     )
 
     query = from u in Facebook.User,
           where: u.facebook_id == ^raw_ben.id,
+         select: u
+    assert length(Repo.all(query)) == 1
+
+    query = from u in Facebook.User,
+          where: u.facebook_id == ^raw_nick.id,
          select: u
     assert length(Repo.all(query)) == 1
 
@@ -133,7 +145,7 @@ defmodule IdempotenceTest do
     assert m.collector_log_fetch_count == 25
   end
 
-  test "#create with a before_callback when model is already created, but not idempotently, does not execute the callback" do
+  test "#create with callbacks when model is already created, but not idempotently, does not execute the callback" do
     {:ok, daniel} = make_daniel
     {:ok, collector_log} = Collector.create_collector_log
     changeset = make_message_changeset(daniel, collector_log)
@@ -144,11 +156,23 @@ defmodule IdempotenceTest do
     changeset = %{changeset|changes: %{changeset.changes|collector_log_id: next_collector_log.id}}
 
     assert_raise Idempotence.DifferentValuesError, fn ->
-      Idempotence.create(Repo, Facebook.Message, :facebook_id, changeset, before_callback: fn -> make_ben end)
+      Idempotence.create(
+        Repo,
+        Facebook.Message,
+        :facebook_id,
+        changeset,
+        before_callback: fn -> make_ben end,
+        after_callback: fn -> make_nick end,
+      )
     end
 
     query = from u in Facebook.User,
           where: u.facebook_id == ^raw_ben.id,
+         select: u
+    assert length(Repo.all(query)) == 0
+
+    query = from u in Facebook.User,
+          where: u.facebook_id == ^raw_nick.id,
          select: u
     assert length(Repo.all(query)) == 0
 

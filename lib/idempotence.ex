@@ -10,13 +10,17 @@ defmodule Idempotence do
 
   `opts` contains special options:
   * `:before_callback` a function to execute before the model is created, not called if creation is not idempotent
+  * `:after_callback` a function to execute after the model is created, not called if creation is not idempotent
   """
   def create(repo_mod, model_mod, unique_key, changeset, opts \\ []) do
     before_callback = opts[:before_callback]
+    after_callback = opts[:after_callback]
     transaction_fun = fn ->
       if before_callback != nil, do: before_callback.()
       res = case apply(repo_mod, :insert, [changeset]) do
-        {:ok, model} -> model
+        {:ok, model} ->
+          if after_callback != nil, do: after_callback.()
+          model
         {:error, changeset} -> apply(repo_mod, :rollback, [changeset])
       end
     end
@@ -28,6 +32,7 @@ defmodule Idempotence do
         case idempotent?(model, changeset) do
           true ->
             if before_callback != nil, do: before_callback.()
+            if after_callback != nil, do: after_callback.()
             {:ok, %{created: false, model: model}}
           {false, diffs} -> raise_on_different_values(diffs)
         end
