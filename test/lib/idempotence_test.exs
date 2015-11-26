@@ -1,31 +1,9 @@
 defmodule IdempotenceTest do
-  use ExUnit.Case
-
-  import Ecto.Query
-
-  alias Betazoids.Collector
-  alias Betazoids.Facebook
-  alias Betazoids.Repo
+  use Betazoids.FacebookCase
 
   setup do
     Ecto.Adapters.SQL.restart_test_transaction(Betazoids.Repo, [])
     :ok
-  end
-
-  def raw_daniel,  do: %{id: "15", name: "Daniel Gold"}
-  def raw_ben,     do: %{id: "12", name: "Ben Cunningham"}
-  def make_daniel, do: Collector.create_facebook_user(raw_daniel)
-  def make_ben,    do: Collector.create_facebook_user(raw_ben)
-
-  def make_message_changeset(user, collector_log) do
-    Facebook.Message.changeset(%Facebook.Message{}, %{
-      facebook_id: "12",
-      user_id: user.id,
-      text: "EAT SOME CARBS",
-      created_at: Ecto.DateTime.utc,
-      collector_log_id: collector_log.id,
-      collector_log_fetch_count: 25,
-    })
   end
 
   test "#create will persist a new object since one doesn't exist" do

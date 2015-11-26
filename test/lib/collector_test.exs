@@ -1,51 +1,9 @@
 defmodule Betazoids.CollectorTest do
-  use ExUnit.Case
-
-  import Ecto.Query
-  alias Betazoids.Collector
-  alias Betazoids.CollectorLog
-  alias Betazoids.Facebook
-  alias Betazoids.Repo
+  use Betazoids.FacebookCase
 
   setup do
     Ecto.Adapters.SQL.restart_test_transaction(Betazoids.Repo, [])
     :ok
-  end
-
-  def make_comment(fb_id, raw_user, message) do
-    %{
-      id: to_string(fb_id),
-      from: raw_user,
-      message: message,
-      created_time: datetime_example
-    }
-  end
-
-  def datetime_example, do: "2015-11-23T18:57:01+0000"
-
-  def raw_chris,   do: %{id: "11", name: "Chris Vaccarino"}
-  def raw_ben,     do: %{id: "12", name: "Ben Cunningham"}
-  def raw_nick,    do: %{id: "13", name: "Nick Wilde"}
-  def raw_matt,    do: %{id: "14", name: "Matt Groff"}
-  def raw_daniel,  do: %{id: "15", name: "Daniel Gold"}
-  def raw_sean,    do: %{id: "16", name: "Sean Yu"}
-
-  def make_chris,  do: Collector.create_facebook_user(raw_chris)
-  def make_ben,    do: Collector.create_facebook_user(raw_ben)
-  def make_nick,   do: Collector.create_facebook_user(raw_nick)
-  def make_matt,   do: Collector.create_facebook_user(raw_matt)
-  def make_daniel, do: Collector.create_facebook_user(raw_daniel)
-  def make_sean,   do: Collector.create_facebook_user(raw_sean)
-
-  def make_betazoids do
-    {:ok, ben} = make_ben
-    {:ok, nick} = make_nick
-    {:ok, daniel} = make_daniel
-    {:ok, chris} = make_chris
-    {:ok, matt} = make_matt
-    {:ok, sean} = make_sean
-
-    [ben, nick, daniel, chris, matt, sean]
   end
 
   test "#process_head" do
