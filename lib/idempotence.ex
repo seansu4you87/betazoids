@@ -15,25 +15,28 @@ defmodule Idempotence do
   def create(repo_mod, model_mod, unique_key, changeset, opts \\ []) do
     before_callback = opts[:before_callback]
     after_callback = opts[:after_callback]
+
     transaction_fun = fn ->
-      if before_callback != nil, do: before_callback.()
+      callbacks = %{}
+      if before_callback != nil, do: callbacks = Map.put(callbacks, :before, before_callback.())
       res = case apply(repo_mod, :insert, [changeset]) do
         {:ok, model} ->
-          if after_callback != nil, do: after_callback.()
-          model
+          if after_callback != nil, do: callbacks = Map.put(callbacks, :after, after_callback.())
+          {model, callbacks}
         {:error, changeset} -> apply(repo_mod, :rollback, [changeset])
       end
     end
 
     case apply(repo_mod, :transaction, [transaction_fun]) do
-      {:ok, model} -> {:ok, %{created: true, model: model}}
+      {:ok, {model, callbacks}} -> {:ok, %{created: true, model: model, callbacks: callbacks}}
       {:error, %Ecto.Changeset{errors: [{^unique_key, "has already been taken"}]}} ->
         [model] = query_model(repo_mod, model_mod, unique_key, changeset.changes[unique_key])
         case idempotent?(model, changeset) do
           true ->
-            if before_callback != nil, do: before_callback.()
-            if after_callback != nil, do: after_callback.()
-            {:ok, %{created: false, model: model}}
+            callbacks = %{}
+            if before_callback != nil, do: callbacks = Map.put(callbacks, :before, before_callback.())
+            if after_callback != nil, do: callbacks = Map.put(callbacks, :after, after_callback.())
+            {:ok, %{created: false, model: model, callbacks: callbacks}}
           {false, diffs} -> raise_on_different_values(diffs)
         end
     end

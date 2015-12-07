@@ -111,22 +111,6 @@ defmodule Betazoids.Collector do
     process_head(res.comments, res.paging.next)
   end
 
-  def process_head(comments, next_url) do
-    Repo.transaction fn ->
-      {:ok, collector_log} = create_collector_log
-
-      changeset = CollectorLog.changeset(collector_log, %{
-        fetch_count: 1,
-        message_count: length(comments),
-        next_url: next_url
-      })
-      {:ok, collector_log} = Repo.update(changeset)
-
-      process_comments(comments, collector_log)
-      collector_log
-    end
-  end
-
   def fetch_next!(collector_log, tracer \\ []) do
     IO.puts "********************************************"
     IO.puts "tracer #{inspect tracer}"
@@ -152,6 +136,22 @@ defmodule Betazoids.Collector do
     end
   end
 
+  def process_head(comments, next_url) do
+    Repo.transaction fn ->
+      {:ok, collector_log} = create_collector_log
+
+      changeset = CollectorLog.changeset(collector_log, %{
+        fetch_count: 1,
+        # message_count: length(comments),
+        next_url: next_url
+      })
+      {:ok, collector_log} = Repo.update(changeset)
+
+      process_comments(comments, collector_log)
+      collector_log
+    end
+  end
+
   def process_done(collector_log) do
     changeset = CollectorLog.changeset(collector_log, %{done: true})
     Repo.update(changeset)
@@ -160,7 +160,7 @@ defmodule Betazoids.Collector do
   def process_next(collector_log, comments, next_url) do
     changeset = CollectorLog.changeset(collector_log, %{
       fetch_count: collector_log.fetch_count + 1,
-      message_count: collector_log.message_count + length(comments),
+      # message_count: collector_log.message_count + length(comments),
       next_url: next_url
     })
 
@@ -173,9 +173,33 @@ defmodule Betazoids.Collector do
 
     Repo.transaction fn ->
       {:ok, updated} = Repo.update(changeset)
-      process_comments(comments, updated)
+      {:ok, updated} = process_comments(comments, updated)
       updated
     end
+  end
+
+  def process_comments_old(comments, collector_log, next_url) do
+    cache = betazoids_member_cache
+    Enum.each comments, fn(c) ->
+      unless Map.has_key?(c, :message), do: c = Map.put(c, :message, nil)
+      {:ok, {message, collector_log}} = create_facebook_message(c, collector_log, cache)
+    end
+
+    {:ok, collector_log}
+  end
+
+  def process_comments([], collector_log, _cache) do
+    {:ok, collector_log}
+  end
+
+  def process_comments(comments, collector_log, cache \\ %{}) do
+    if cache == %{}, do: cache = betazoids_member_cache
+
+    [head|tail] = comments
+    unless Map.has_key?(head, :message), do: head = Map.put(head, :message, nil)
+
+    {:ok, {message, collector_log}} = create_facebook_message(head, collector_log, cache)
+    process_comments(tail, collector_log, cache)
   end
 
   def last_collector_log do
@@ -214,18 +238,7 @@ defmodule Betazoids.Collector do
           created_time: created_time},
         collector_log,
         user_cache \\ %{}) do
-    user_id = case user_cache[from_hash.id] do
-      %Facebook.User{id: id} -> id
-      nil ->
-        query = from u in Facebook.User,
-              where: u.facebook_id == ^from_hash.id,
-             select: u
-        case Repo.all(query) do
-          [] -> raise "No user found for #{from_hash.id}, shouldn't happen"
-          [%Facebook.User{id: id}] -> id
-        end
-    end
-
+    user_id = database_id_from_cache(user_cache, from_hash.id)
     {:ok, ecto_date} = parse_date(created_time)
     changeset = Facebook.Message.changeset(%Facebook.Message{}, %{
       facebook_id: id,
@@ -233,10 +246,47 @@ defmodule Betazoids.Collector do
       text: message,
       created_at: ecto_date,
       collector_log_id: collector_log.id,
-      collector_log_fetch_count: collector_log.fetch_count
+      # DETAIL(yu): We increment the fetch count because we don't persist an
+      # updated fetch count on the CollectorLog until all of the comments for a
+      # fetch batch have been persisted
+      collector_log_fetch_count: collector_log.fetch_count + 1
     })
 
-    Repo.insert(changeset)
+    after_callback = fn ->
+      cs = CollectorLog.changeset(collector_log, %{message_count: collector_log.message_count + 1})
+      {:ok, collector_log} = Repo.update(cs)
+      collector_log
+    end
+
+    case Idempotence.create(
+      Repo,
+      Facebook.Message,
+      :facebook_id,
+      changeset,
+      after_callback: after_callback
+    ) do
+      # TODO(yu): this is just plain wrong right?  We don't want the
+      # after_callback to execute if it fails to create.
+      # Let's write a test for this in the CollectorTest
+      {:ok, %{created: true, model: message, callbacks: callbacks}} ->
+        {:ok, {message, callbacks.after}}
+      {:ok, %{created: false, model: message, callbacks: callbacks}} ->
+        {:ok, {message, collector_log}}
+    end
+  end
+
+  defp database_id_from_cache(cache, facebook_id) do
+    case cache[facebook_id] do
+      %Facebook.User{id: id} -> id
+      nil ->
+        query = from u in Facebook.User,
+              where: u.facebook_id == ^facebook_id,
+             select: u
+        case Repo.all(query) do
+          [] -> raise "No user found for #{facebook_id}, shouldn't happen"
+          [%Facebook.User{id: id}] -> id
+        end
+    end
   end
 
   def betazoids_member_cache do
@@ -245,14 +295,6 @@ defmodule Betazoids.Collector do
 
     Repo.all(query)
     |> Enum.reduce %{}, fn(u, cache) -> Map.put(cache, u.facebook_id, u) end
-  end
-
-  def process_comments(comments, collector_log) do
-    cache = betazoids_member_cache
-    Enum.each comments, fn(c) ->
-      unless Map.has_key?(c, :message), do: c = Map.put(c, :message, nil)
-      {:ok, _} = create_facebook_message(c, collector_log, cache)
-    end
   end
 
   def path_from_url(url) do

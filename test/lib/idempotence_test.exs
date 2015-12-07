@@ -78,7 +78,7 @@ defmodule IdempotenceTest do
     {:ok, collector_log} = Collector.create_collector_log
     changeset = make_message_changeset(daniel, collector_log)
 
-    {:ok, %{created: true, model: _}} = Idempotence.create(
+    {:ok, %{created: true, model: _, callbacks: callbacks}} = Idempotence.create(
       Repo,
       Facebook.Message,
       :facebook_id,
@@ -86,6 +86,11 @@ defmodule IdempotenceTest do
       before_callback: fn -> make_ben end,
       after_callback: fn -> make_nick end,
     )
+
+    {:ok, %Facebook.User{name: name}} = callbacks[:before]
+    assert name == "Ben Cunningham"
+    {:ok, %Facebook.User{name: name}} = callbacks[:after]
+    assert name == "Nick Wilde"
 
     query = from u in Facebook.User,
           where: u.facebook_id == ^raw_ben.id,
@@ -115,7 +120,7 @@ defmodule IdempotenceTest do
 
     {:ok, _} = Repo.insert(changeset) # DETAIL(yu): creating the model first
 
-    {:ok, %{created: false, model: _}} = Idempotence.create(
+    {:ok, %{created: false, model: _, callbacks: callbacks}} = Idempotence.create(
       Repo,
       Facebook.Message,
       :facebook_id,
@@ -123,6 +128,11 @@ defmodule IdempotenceTest do
       before_callback: fn -> make_ben end,
       after_callback: fn -> make_nick end,
     )
+
+    {:ok, %Facebook.User{name: name}} = callbacks[:before]
+    assert name == "Ben Cunningham"
+    {:ok, %Facebook.User{name: name}} = callbacks[:after]
+    assert name == "Nick Wilde"
 
     query = from u in Facebook.User,
           where: u.facebook_id == ^raw_ben.id,
