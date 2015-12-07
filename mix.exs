@@ -43,6 +43,7 @@ defmodule Betazoids.Mixfile do
     [
       {:cowboy, "~> 1.0"},
       {:httpoison, "~> 0.8.0"},
+      {:pavlov, ">= 0.1.0", only: :test},
       {:phoenix, "~> 1.0.3"},
       {:phoenix_ecto, "~> 1.1"},
       {:postgrex, ">= 0.0.0"},
