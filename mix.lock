@@ -10,7 +10,7 @@
   "idna": {:hex, :idna, "1.0.2"},
   "meck": {:hex, :meck, "0.8.3"},
   "mimerl": {:hex, :mimerl, "1.0.0"},
-  "pavlov": {:hex, :pavlov, "0.2.3"},
+  "pavlov": {:git, "https://github.com/seansu4you87/pavlov.git", "74d17f493ee1d573a7357f62e54c46d94af6b489", [branch: "seansu4you87/let-callbacks"]},
   "phoenix": {:hex, :phoenix, "1.0.3"},
   "phoenix_ecto": {:hex, :phoenix_ecto, "1.2.0"},
   "phoenix_html": {:hex, :phoenix_html, "2.2.0"},

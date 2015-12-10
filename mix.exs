@@ -43,7 +43,8 @@ defmodule Betazoids.Mixfile do
     [
       {:cowboy, "~> 1.0"},
       {:httpoison, "~> 0.8.0"},
-      {:pavlov, ">= 0.1.0", only: :test},
+      # {:pavlov, ">= 0.1.0", only: :test},
+      {:pavlov, git: "https://github.com/seansu4you87/pavlov.git", branch: "seansu4you87/let-callbacks"},
       {:phoenix, "~> 1.0.3"},
       {:phoenix_ecto, "~> 1.1"},
       {:postgrex, ">= 0.0.0"},

@@ -11,7 +11,8 @@ defmodule Betazoids.FacebookCase do
 
   using do
     quote do
-      use ExUnit.Case
+      use Pavlov.Case, async: false
+      import Pavlov.Syntax.Expect
 
       import Betazoids.FacebookCase
       import Ecto.Query
@@ -19,6 +20,7 @@ defmodule Betazoids.FacebookCase do
       alias Betazoids.Collector
       alias Betazoids.CollectorLog
       alias Betazoids.Facebook
+      alias Betazoids.FacebookCase
       alias Betazoids.Repo
     end
   end
